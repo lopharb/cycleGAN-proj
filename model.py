@@ -129,8 +129,3 @@ class Discriminator(nn.Module):
 
     def forward(self, x):
         return self.net(x)
-
-
-dis = Discriminator()
-x = torch.randn((1, 3, 256, 256))
-print(dis(x).item())

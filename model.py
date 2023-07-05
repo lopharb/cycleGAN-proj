@@ -113,17 +113,12 @@ class Discriminator(nn.Module):
         in_channels = 3  # still taking rgb image as input
 
         self.net = nn.Sequential(
-            DiscBlock(in_channels, 32, normalize=False),
-            Custom(),  # 32 128 128
-            DiscBlock(32, 64),
-            Custom(),  # 64 64 64
-            DiscBlock(64, 128),
-            Custom(),  # 128 32 32
-            DiscBlock(128, 256),
-            Custom(),  # 256 16 16
-            DiscBlock(256, 512),
-            Custom(),  # 512 8 8
-            nn.Conv2d(512, 1, 8),
+            DiscBlock(in_channels, 32, normalize=False),  # 32 128 128
+            DiscBlock(32, 64),  # 64 64 64
+            DiscBlock(64, 128),  # 128 32 32
+            DiscBlock(128, 256),  # 256 16 16
+            DiscBlock(256, 512),  # 512 8 8
+            nn.Conv2d(512, 1, 8),  # 1 1 1
             nn.Sigmoid()
         )
 

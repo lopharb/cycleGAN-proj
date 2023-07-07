@@ -1,4 +1,29 @@
 from PIL import Image
+import torch
+from torchvision.utils import make_grid
+import matplotlib.pyplot as plt
+
+
+def sample_images(gen_ab, gen_ba, loader):
+    """show a generated sample from the test set"""
+    imgs = next(iter(loader))
+    gen_ab.eval()
+    gen_ba.eval()
+    real_A = imgs['a'].to('cuda')  # A : monet
+    fake_B = gen_ab(real_A).detach()
+    real_B = imgs['b'].to('cuda')  # B : photo
+    fake_A = gen_ba(real_B).detach()
+    # Arange images along x-axis
+    real_A = make_grid(real_A, nrow=5, normalize=True)
+    fake_B = make_grid(fake_B, nrow=5, normalize=True)
+    real_B = make_grid(real_B, nrow=5, normalize=True)
+    fake_A = make_grid(fake_A, nrow=5, normalize=True)
+    # Arange images along y-axis
+    image_grid = torch.cat((real_A, fake_B, real_B, fake_A), 1)
+    plt.imshow(image_grid.cpu().permute(1, 2, 0))
+    plt.title('Real A vs Fake B | Real B vs Fake A')
+    plt.axis('off')
+    plt.show()
 
 
 class Buffer:

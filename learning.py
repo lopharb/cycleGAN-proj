@@ -50,11 +50,11 @@ class ImageDataset(Dataset):
         if mode == 'test':
             self.files_a = sorted(glob(os.path.join(root+'/testA')+'/*.*'))
             self.files_b = sorted(
-                glob(os.path.join(root+'/test')+'/*.*')[:len(self.files_a)])
+                glob(os.path.join(root+'/testB')+'/*.*')[:len(self.files_a)])
 
     def __getitem__(self, index):
-        img_a = Image.open(self.files_a[index])
-        img_b = Image.open(self.files_b[index])
+        img_a = Image.open(self.files_a[index % len(self.files_a)])
+        img_b = Image.open(self.files_b[index % len(self.files_b)])
         if img_a.mode != 'RGB':
             img_a = custom.to_rgb(img_a)
         if img_b.mode != 'RGB':
@@ -170,20 +170,7 @@ for epoch in range(epochs):
         # TRAINING DISCRIMINATORS
         dis_a.train()
         dis_b.train()
-        # updating buffers
-        img_a_buffer.append(real_a)
-        img_a_buffer.append(fake_a)
-        img_b_buffer.append(real_b)
-        img_b_buffer.append(fake_b)
-        labels_a_buffer.append(real_label)
-        labels_a_buffer.append(fake_label)
-        labels_b_buffer.append(real_label)
-        labels_b_buffer.append(fake_label)
-
         # discriminator a
-        # dis_loss_a = criterion_gan(
-        #     dis_a(torch.vstack(img_a_buffer.elems).to('cuda')),
-        #     torch.vstack(labels_a_buffer.elems).to('cuda'))/len(img_a_buffer)
         dis_loss_a = criterion_gan(dis_a(real_a), real_label)
         + criterion_gan(dis_a(fake_a), fake_label)
         dis_loss_a.backward()
@@ -191,9 +178,6 @@ for epoch in range(epochs):
         optimizers['dis_a'].zero_grad()
 
         # discriminator b
-        # dis_loss_b = criterion_gan(
-        #     dis_b(torch.vstack(img_b_buffer.elems).to('cuda')),
-        #     torch.vstack(labels_b_buffer.elems).to('cuda'))/len(img_b_buffer)
         dis_loss_b = criterion_gan(dis_b(real_b), real_label)
         + criterion_gan(dis_b(fake_b), fake_label)
         dis_loss_b.backward()
@@ -201,7 +185,64 @@ for epoch in range(epochs):
         optimizers['dis_b'].zero_grad()
 
         dis_loss = (dis_loss_a+dis_loss_b)/2
+
         if batch_num % 100 == 0:
+            custom.sample_images(gen_ab, gen_ba, test_loader)
+            print('[Epoch %d/%d] [Batch %d/%d] [D loss : %f] [G loss : %f - (adv : %f, cycle : %f, identity : %f)]'
+                  % (epoch+1, epochs,       # [Epoch -]
+                     batch_num+1, len(train_loader),   # [Batch -]
+                     dis_loss.item(),       # [D loss -]
+                     gen_loss.item(),       # [G loss -]
+                     gan_loss.item(),     # [adv -]
+                     cc_loss.item(),   # [cycle -]
+                     id_loss.item(),  # [identity -]
+                     ))
+
+    for batch_num, imgs in enumerate(tqdm(test_loader)):
+        real_a = imgs['a'].to('cuda')
+        real_b = imgs['b'].to('cuda')
+
+        gen_ab.valid()
+        gen_ba.valid()
+
+        with torch.no_grad():
+            id_loss_a = criterion_identity(gen_ab(real_b), real_b)
+            id_loss_b = criterion_identity(gen_ba(real_a), real_a)
+
+            id_loss = (id_loss_a+id_loss_b)/2
+
+            # gan loss
+            fake_a = gen_ba(real_b)
+            fake_b = gen_ab(real_a)
+            gan_loss_a = criterion_gan(dis_a(fake_a), real_label)
+            gan_loss_b = criterion_gan(dis_b(fake_b), real_label)
+
+            gan_loss = (gan_loss_a+gan_loss_b)/2
+
+            # cycle consistency loss
+            recovered_a = gen_ba(fake_b)
+            recovered_b = gen_ab(fake_a)
+            cc_loss_a = criterion_cycle(recovered_a, real_a)
+            cc_loss_b = criterion_cycle(recovered_b, real_b)
+
+            cc_loss = (cc_loss_a+cc_loss_b)/2
+            gen_loss = gan_loss + 10*cc_loss + 5*id_loss
+
+        dis_a.valid()
+        dis_b.valid()
+        with torch.no_grad():
+            # discriminator a
+            dis_loss_a = criterion_gan(dis_a(real_a), real_label)
+            + criterion_gan(dis_a(fake_a), fake_label)
+
+            # discriminator b
+            dis_loss_b = criterion_gan(dis_b(real_b), real_label)
+            + criterion_gan(dis_b(fake_b), fake_label)
+
+            dis_loss = (dis_loss_a+dis_loss_b)/2
+
+        if batch_num % 100 == 0:
+            custom.sample_images(gen_ab, gen_ba, test_loader)
             print('[Epoch %d/%d] [Batch %d/%d] [D loss : %f] [G loss : %f - (adv : %f, cycle : %f, identity : %f)]'
                   % (epoch+1, epochs,       # [Epoch -]
                      batch_num+1, len(train_loader),   # [Batch -]

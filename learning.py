@@ -204,7 +204,6 @@ for epoch in range(epochs):
 
         gen_ab.valid()
         gen_ba.valid()
-
         with torch.no_grad():
             id_loss_a = criterion_identity(gen_ab(real_b), real_b)
             id_loss_b = criterion_identity(gen_ba(real_a), real_a)
@@ -252,3 +251,7 @@ for epoch in range(epochs):
                      cc_loss.item(),   # [cycle -]
                      id_loss.item(),  # [identity -]
                      ))
+    schedulers['gen_ab'].step()
+    schedulers['dis_b'].step()
+    schedulers['gen_ba'].step()
+    schedulers['dis_a'].step()

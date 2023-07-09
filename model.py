@@ -22,8 +22,8 @@ class ResidualBlock(nn.Module):
             nn.ReLU(inplace=True),
             nn.ReflectionPad2d(2),
             nn.Conv2d(channels, channels, 5),
-            nn.InstanceNorm2d(channels)
-            # there should maybe be a relu
+            nn.InstanceNorm2d(channels),
+            nn.ReLU(inplace=True)
         )
 
     def forward(self, x):

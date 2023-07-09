@@ -13,15 +13,10 @@ def sample_images(gen_ab, gen_ba, loader):
     fake_B = gen_ab(real_A).detach()
     real_B = imgs['b'].to('cuda')  # B : photo
     fake_A = gen_ba(real_B).detach()
-    # Arange images along x-axis
-    real_A = make_grid(real_A, nrow=5, normalize=True)
-    fake_B = make_grid(fake_B, nrow=5, normalize=True)
-    real_B = make_grid(real_B, nrow=5, normalize=True)
-    fake_A = make_grid(fake_A, nrow=5, normalize=True)
-    # Arange images along y-axis
-    image_grid = torch.cat((real_A, fake_B, real_B, fake_A), 1)
+    image_grid = make_grid(
+        [real_A[0], fake_B[0], real_B[0], fake_A[0]], 2, 2, normalize=True)
     plt.imshow(image_grid.cpu().permute(1, 2, 0))
-    plt.title('Real A vs Fake B | Real B vs Fake A')
+    plt.title('Real A/B    |    Fake B/A')
     plt.axis('off')
     plt.show()
 

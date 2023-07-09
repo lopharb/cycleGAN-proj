@@ -1,3 +1,4 @@
+from itertools import chain
 import os
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
@@ -83,7 +84,7 @@ test_loader = DataLoader(
 )
 
 # losses
-criterion_gan = nn.BCELoss()
+criterion_gan = nn.MSELoss()
 criterion_cycle = nn.L1Loss()
 criterion_identity = nn.L1Loss()
 
@@ -97,14 +98,14 @@ lr = 0.0005
 b1 = 0.5
 b2 = 0.999
 optimizers = {
-    'gen_ab': torch.optim.Adam(gen_ab.parameters(), lr, (b1, b2)),
+    'gen_ab': torch.optim.Adam(chain(gen_ab.parameters(), gen_ba.parameters()), lr, (b1, b2)),
     'gen_ba': torch.optim.Adam(gen_ba.parameters(), lr, (b1, b2)),
     'dis_a': torch.optim.Adam(dis_a.parameters(), lr, (b1, b2)),
     'dis_b': torch.optim.Adam(dis_b.parameters(), lr, (b1, b2))
 }
 
-epochs = 100
-decay_start = 50
+epochs = 200
+decay_start = 100
 offset = 0
 schedulers = {
     'gen_ab': torch.optim.lr_scheduler.LambdaLR(optimizers['gen_ab'],
@@ -116,12 +117,6 @@ schedulers = {
     'dis_b': torch.optim.lr_scheduler.LambdaLR(optimizers['dis_b'],
                                                lr_lambda=Lambda_scheduler(epochs, decay_start).step),
 }
-
-# creating buffers for discriminators
-img_a_buffer = custom.Buffer(50)
-labels_a_buffer = custom.Buffer(50)
-img_b_buffer = custom.Buffer(50)
-labels_b_buffer = custom.Buffer(50)
 
 real_label = torch.ones((1, 1, 1, 1)).to('cuda')
 fake_label = torch.zeros((1, 1, 1, 1)).to('cuda')
@@ -138,6 +133,8 @@ for epoch in range(epochs):
         gen_ba.train()
         optimizers['gen_ab'].zero_grad()
         optimizers['gen_ba'].zero_grad()
+        optimizers['dis_a'].zero_grad()
+        optimizers['dis_b'].zero_grad()
 
         # identity loss
         id_loss_a = criterion_identity(gen_ab(real_b), real_b)
@@ -175,21 +172,18 @@ for epoch in range(epochs):
         + criterion_gan(dis_a(fake_a), fake_label)
         dis_loss_a.backward()
         optimizers['dis_a'].step()
-        optimizers['dis_a'].zero_grad()
 
         # discriminator b
         dis_loss_b = criterion_gan(dis_b(real_b), real_label)
         + criterion_gan(dis_b(fake_b), fake_label)
         dis_loss_b.backward()
         optimizers['dis_b'].step()
-        optimizers['dis_b'].zero_grad()
 
         dis_loss = (dis_loss_a+dis_loss_b)/2
 
-        if batch_num % 100 == 0:
-            custom.sample_images(gen_ab, gen_ba, test_loader)
+        if batch_num % 50 == 0:
             print('[Epoch %d/%d] [Batch %d/%d] [D loss : %f] [G loss : %f - (adv : %f, cycle : %f, identity : %f)]'
-                  % (epoch+1, epochs,       # [Epoch -]
+                  % (epoch+offset, epochs,       # [Epoch -]
                      batch_num+1, len(train_loader),   # [Batch -]
                      dis_loss.item(),       # [D loss -]
                      gen_loss.item(),       # [G loss -]
@@ -197,18 +191,25 @@ for epoch in range(epochs):
                      cc_loss.item(),   # [cycle -]
                      id_loss.item(),  # [identity -]
                      ))
+            custom.sample_images(gen_ab, gen_ba, test_loader)
 
+    epoch_dis = 0
+    epoch_cc = 0
+    epoch_id = 0
+    epoch_gan = 0
+    epoch_gen = 0
     for batch_num, imgs in enumerate(tqdm(test_loader)):
         real_a = imgs['a'].to('cuda')
         real_b = imgs['b'].to('cuda')
 
-        gen_ab.valid()
-        gen_ba.valid()
+        gen_ab.eval()
+        gen_ba.eval()
         with torch.no_grad():
             id_loss_a = criterion_identity(gen_ab(real_b), real_b)
             id_loss_b = criterion_identity(gen_ba(real_a), real_a)
 
             id_loss = (id_loss_a+id_loss_b)/2
+            epoch_id += id_loss
 
             # gan loss
             fake_a = gen_ba(real_b)
@@ -217,6 +218,7 @@ for epoch in range(epochs):
             gan_loss_b = criterion_gan(dis_b(fake_b), real_label)
 
             gan_loss = (gan_loss_a+gan_loss_b)/2
+            epoch_gan += gan_loss
 
             # cycle consistency loss
             recovered_a = gen_ba(fake_b)
@@ -225,10 +227,13 @@ for epoch in range(epochs):
             cc_loss_b = criterion_cycle(recovered_b, real_b)
 
             cc_loss = (cc_loss_a+cc_loss_b)/2
-            gen_loss = gan_loss + 10*cc_loss + 5*id_loss
+            epoch_cc += cc_loss
 
-        dis_a.valid()
-        dis_b.valid()
+            gen_loss = gan_loss + 10*cc_loss + 5*id_loss
+            epoch_gen += gen_loss
+
+        dis_a.eval()
+        dis_b.eval()
         with torch.no_grad():
             # discriminator a
             dis_loss_a = criterion_gan(dis_a(real_a), real_label)
@@ -240,17 +245,23 @@ for epoch in range(epochs):
 
             dis_loss = (dis_loss_a+dis_loss_b)/2
 
-        if batch_num % 100 == 0:
-            custom.sample_images(gen_ab, gen_ba, test_loader)
-            print('[Epoch %d/%d] [Batch %d/%d] [D loss : %f] [G loss : %f - (adv : %f, cycle : %f, identity : %f)]'
-                  % (epoch+1, epochs,       # [Epoch -]
-                     batch_num+1, len(train_loader),   # [Batch -]
-                     dis_loss.item(),       # [D loss -]
-                     gen_loss.item(),       # [G loss -]
-                     gan_loss.item(),     # [adv -]
-                     cc_loss.item(),   # [cycle -]
-                     id_loss.item(),  # [identity -]
-                     ))
+    print('[Epoch %d/%d] [Batch %d/%d] [D loss : %f] [G loss : %f - (adv : %f, cycle : %f, identity : %f)]'
+          % (epoch+offset, epochs,       # [Epoch -]
+             batch_num+1, len(train_loader),   # [Batch -]
+             epoch_dis/len(train_loader),       # [D loss -]
+             epoch_gen/len(train_loader),       # [G loss -]
+             epoch_gan/len(train_loader),     # [adv -]
+             epoch_cc/len(train_loader),   # [cycle -]
+             epoch_id/len(train_loader),  # [identity -]
+             ))
+    custom.sample_images(gen_ab, gen_ba, test_loader)
+
+    if epoch % 10 == 0 and epoch != 0:
+        torch.save(gen_ab.state_dict(), f'gen_ab_{epoch+offset}epochs.pt')
+        torch.save(gen_ba.state_dict(), f'gen_ba_{epoch+offset}epochs.pt')
+        torch.save(dis_a.state_dict(), f'dis_a_{epoch+offset}epochs.pt')
+        torch.save(dis_b.state_dict(), f'dis_b_{epoch+offset}epochs.pt')
+
     schedulers['gen_ab'].step()
     schedulers['dis_b'].step()
     schedulers['gen_ba'].step()
